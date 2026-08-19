@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.meta.outputs.channel }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      strict_signing: ${{ steps.meta.outputs.strict_signing }}
+    steps:
+      - id: meta
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" == *-* ]]; then
+            echo "channel=beta" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "strict_signing=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "strict_signing=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    needs: prepare
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    env:
+      HAS_WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 != '' && 'true' || 'false' }}
+      HAS_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD != '' && 'true' || 'false' }}
+      HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' && 'true' || 'false' }}
+      HAS_APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && 'true' || 'false' }}
+      HAS_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID != '' && 'true' || 'false' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify
+        run: |
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+
+      - name: Require Windows signing for stable releases
+        if: matrix.os == 'windows-latest' && needs.prepare.outputs.strict_signing == 'true' && (env.HAS_WINDOWS_CERTIFICATE != 'true' || env.HAS_WINDOWS_CERTIFICATE_PASSWORD != 'true')
+        shell: bash
+        run: |
+          echo "Stable Windows releases require WINDOWS_CERTIFICATE_BASE64 and WINDOWS_CERTIFICATE_PASSWORD." >&2
+          exit 1
+
+      - name: Require Apple signing for stable releases
+        if: matrix.os == 'macos-latest' && needs.prepare.outputs.strict_signing == 'true' && (env.HAS_APPLE_ID != 'true' || env.HAS_APPLE_PASSWORD != 'true' || env.HAS_APPLE_TEAM_ID != 'true')
+        shell: bash
+        run: |
+          echo "Stable macOS releases require APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID." >&2
+          exit 1
+
+      - name: Build and publish
+        run: pnpm release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_CHANNEL: ${{ needs.prepare.outputs.channel }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ needs.prepare.outputs.strict_signing == 'true' && 'true' || 'false' }}
+          CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktopapp-${{ matrix.os }}
+          path: release/**
+          if-no-files-found: error
+
+      - name: Create or update GitHub Release
+        shell: bash
+        run: |
+          PRERELEASE_FLAG=""
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes "Automated desktop release." ${PRERELEASE_FLAG}
+          gh release upload "${GITHUB_REF_NAME}" release/** --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}

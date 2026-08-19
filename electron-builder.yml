@@ -1,0 +1,54 @@
+appId: com.example.desktopapp
+productName: Desktop App
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+asar: true
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**
+  - package.json
+extraMetadata:
+  main: out/main/index.js
+publish:
+  provider: github
+  owner: your-github-org
+  repo: your-repo
+  releaseType: release
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+mac:
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+dmg:
+  sign: false
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  category: Utility
+  executableName: desktopapp
