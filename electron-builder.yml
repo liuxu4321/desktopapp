@@ -1,6 +1,6 @@
 appId: com.liuxu.documentcompare
 productName: 文书比对
-artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+artifactName: document-compare-setup-${version}.${ext}
 asar: true
 generateUpdatesFilesForAllChannels: true
 directories:
