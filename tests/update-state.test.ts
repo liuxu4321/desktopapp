@@ -4,6 +4,7 @@ import {
   createIdleUpdateState,
   hasUpdateAvailable,
 } from '@shared/update-state'
+import { resolveReleaseChannel, toUpdateManifestChannel } from '@shared/release-channel'
 
 describe('update state helpers', () => {
   it('creates platform-aware idle messages', () => {
@@ -34,5 +35,13 @@ describe('update state helpers', () => {
     expect(
       hasUpdateAvailable({ status: 'not-available', channel: 'stable', message: 'latest' }),
     ).toBe(false)
+  })
+
+  it('derives the update channel from packaged prerelease versions', () => {
+    expect(resolveReleaseChannel('0.1.0-beta.3')).toBe('beta')
+    expect(resolveReleaseChannel('0.1.0')).toBe('stable')
+    expect(resolveReleaseChannel('0.1.0-beta.3', 'stable')).toBe('stable')
+    expect(toUpdateManifestChannel('beta')).toBe('beta')
+    expect(toUpdateManifestChannel('stable')).toBe('latest')
   })
 })
