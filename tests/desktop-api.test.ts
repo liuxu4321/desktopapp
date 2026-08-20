@@ -20,7 +20,7 @@ function createFallbackAPI(): DesktopAPI {
     },
     async openExternal() {},
     selectFile: vi.fn(async () => null),
-    importDocument: vi.fn(async () => null),
+    importDocument: vi.fn(async () => []),
     listDocuments: vi.fn(async () => []),
     getDocumentPreview: vi.fn(async () => ''),
     updateDocument: vi.fn(async () => {

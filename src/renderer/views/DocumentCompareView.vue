@@ -101,6 +101,7 @@ const aiCompareState = ref<'idle' | 'analyzing' | 'complete' | 'error'>('idle')
 const aiPanelView = ref<'result' | 'process'>('result')
 const aiCompareError = ref('')
 const aiProgressEvents = ref<Array<DocumentComparisonProgress & { id: number }>>([])
+let aiProgressEventSequence = 0
 const comparePageAspectRatio = ref(765 / 595)
 const standardPreview = ref<PdfPreviewHandle | null>(null)
 const candidatePreview = ref<PdfPreviewHandle | null>(null)
@@ -195,7 +196,7 @@ const unsubscribeComparisonProgress = desktopAPI.onDocumentComparisonProgress((p
       item.page === progress.page &&
       item.textPreview === undefined,
   )
-  const item = { ...progress, id: Date.now() + aiProgressEvents.value.length }
+  const item = { ...progress, id: ++aiProgressEventSequence }
   if (existingIndex >= 0 && progress.textPreview) {
     aiProgressEvents.value.splice(existingIndex, 1, item)
   } else {
@@ -239,13 +240,14 @@ function selectCandidate(document: CandidateDocument): void {
 async function importStandardDocument(): Promise<void> {
   importingStandard.value = true
   try {
-    const document = await desktopAPI.importDocument('standard')
-    if (!document) return
-    const standard = toStandardDocument(document)
-    standardDocuments.value.unshift(standard)
-    selectedStandardId.value = standard.id
+    const documents = await desktopAPI.importDocument('standard')
+    if (documents.length === 0) return
+    const standards = documents.map(toStandardDocument)
+    standardDocuments.value.unshift(...standards)
+    selectedStandardId.value = standards[0]?.id ?? selectedStandardId.value
+    dataError.value = ''
   } catch {
-    dataError.value = '标准文书导入失败，请确认PDF文件可以正常读取。'
+    dataError.value = '标准文书导入失败，仅支持可正常读取的PDF文件。'
   } finally {
     importingStandard.value = false
   }
@@ -254,13 +256,14 @@ async function importStandardDocument(): Promise<void> {
 async function importCandidateDocument(): Promise<void> {
   importingCandidate.value = true
   try {
-    const document = await desktopAPI.importDocument('candidate')
-    if (!document) return
-    const candidate = toCandidateDocument(document)
-    candidateDocuments.value.unshift(candidate)
-    selectedCandidateId.value = candidate.id
+    const documents = await desktopAPI.importDocument('candidate')
+    if (documents.length === 0) return
+    const candidates = documents.map(toCandidateDocument)
+    candidateDocuments.value.unshift(...candidates)
+    selectedCandidateId.value = candidates[0]?.id ?? selectedCandidateId.value
+    dataError.value = ''
   } catch {
-    dataError.value = '待比对文书导入失败，请确认PDF文件可以正常读取。'
+    dataError.value = '待比对文书导入失败，仅支持可正常读取的PDF文件。'
   } finally {
     importingCandidate.value = false
   }
@@ -704,7 +707,7 @@ function formatImportedAt(value: string): string {
         <header class="table-panel-header">
           <div>
             <h2>标准文书</h2>
-            <p>作为比对基准的模板或正式版本</p>
+            <p>支持批量导入，选择其中一份作为比对基准</p>
           </div>
           <button
             class="secondary-button"
@@ -713,7 +716,7 @@ function formatImportedAt(value: string): string {
             @click="importStandardDocument"
           >
             <Upload :size="16" aria-hidden="true" />{{
-              importingStandard ? '导入中' : '导入标准文书'
+              importingStandard ? '导入中' : '批量导入标准文书'
             }}
           </button>
         </header>
@@ -803,7 +806,7 @@ function formatImportedAt(value: string): string {
             </label>
             <button type="button" :disabled="importingCandidate" @click="importCandidateDocument">
               <Upload :size="16" aria-hidden="true" />{{
-                importingCandidate ? '上传中' : '上传待比对文书'
+                importingCandidate ? '上传中' : '批量上传待比对文书'
               }}
             </button>
             <button

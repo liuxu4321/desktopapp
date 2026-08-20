@@ -67,7 +67,7 @@ export interface IpcInvokeMap {
   }
   [ipcChannels.documentsImport]: {
     args: [role: DocumentImportRole]
-    result: ImportedDocument | null
+    result: ImportedDocument[]
   }
   [ipcChannels.documentsList]: {
     args: []

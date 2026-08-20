@@ -175,7 +175,7 @@ export interface DesktopAPI {
   getPlatformInfo(): Promise<PlatformInfo>
   openExternal(url: string): Promise<void>
   selectFile(): Promise<SelectedFile | null>
-  importDocument(role: DocumentImportRole): Promise<ImportedDocument | null>
+  importDocument(role: DocumentImportRole): Promise<ImportedDocument[]>
   listDocuments(): Promise<DocumentRecord[]>
   getDocumentPreview(id: string): Promise<string>
   updateDocument(input: UpdateDocumentInput): Promise<DocumentRecord>

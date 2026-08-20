@@ -4,6 +4,7 @@ import { basename, extname, join } from 'node:path'
 import { dialog } from 'electron'
 import type { BrowserWindow, OpenDialogOptions } from 'electron'
 import { getDocumentDatabase, getDocumentDataDirectory } from './document-store'
+import { hasPdfSignature } from '@shared/document-file'
 import type { DocumentImportRole, DocumentKind, ImportedDocument } from '@shared/types'
 
 interface PdfInspection {
@@ -14,19 +15,39 @@ interface PdfInspection {
 export async function importDocumentFromDialog(
   parentWindow: BrowserWindow | null,
   role: DocumentImportRole,
-): Promise<ImportedDocument | null> {
+): Promise<ImportedDocument[]> {
   const options: OpenDialogOptions = {
     filters: [{ name: 'PDF documents', extensions: ['pdf'] }],
-    properties: ['openFile'],
+    properties: ['openFile', 'multiSelections'],
     securityScopedBookmarks: false,
   }
   const result = parentWindow
     ? await dialog.showOpenDialog(parentWindow, options)
     : await dialog.showOpenDialog(options)
-  if (result.canceled || result.filePaths.length === 0) return null
+  if (result.canceled || result.filePaths.length === 0) return []
 
-  const sourcePath = result.filePaths[0]
-  if (!sourcePath || extname(sourcePath).toLocaleLowerCase() !== '.pdf') return null
+  if (result.filePaths.some((filePath) => extname(filePath).toLowerCase() !== '.pdf')) {
+    throw new Error('Only PDF documents can be imported.')
+  }
+
+  const importedDocuments: ImportedDocument[] = []
+  try {
+    for (const sourcePath of result.filePaths) {
+      importedDocuments.push(await importPdfDocument(sourcePath, role))
+    }
+    return importedDocuments
+  } catch (error) {
+    await rollbackImportedDocuments(importedDocuments)
+    throw error
+  }
+}
+
+async function importPdfDocument(
+  sourcePath: string,
+  role: DocumentImportRole,
+): Promise<ImportedDocument> {
+  const [fileStat, pdfBuffer] = await Promise.all([stat(sourcePath), readFile(sourcePath)])
+  if (!hasPdfSignature(pdfBuffer)) throw new Error('Only valid PDF documents can be imported.')
 
   const id = createDocumentId(role)
   const importedAt = new Date().toISOString()
@@ -39,7 +60,6 @@ export async function importDocumentFromDialog(
     await mkdir(taskDirectory, { recursive: true })
     await copyFile(sourcePath, storedPath)
 
-    const [fileStat, pdfBuffer] = await Promise.all([stat(storedPath), readFile(storedPath)])
     const inspection = inspectPdf(pdfBuffer)
 
     const compareStatus = role === 'candidate' ? '待比对' : undefined
@@ -73,6 +93,20 @@ export async function importDocumentFromDialog(
     if (persisted) getDocumentDatabase().deleteDocument(id)
     await rm(taskDirectory, { force: true, recursive: true })
     throw error
+  }
+}
+
+async function rollbackImportedDocuments(documents: ImportedDocument[]): Promise<void> {
+  for (const document of documents) {
+    try {
+      getDocumentDatabase().deleteDocument(document.id)
+      await rm(join(getDocumentDataDirectory(), document.role, document.id), {
+        force: true,
+        recursive: true,
+      })
+    } catch {
+      // Keep the original import error; cleanup can be retried by deleting the record later.
+    }
   }
 }
 

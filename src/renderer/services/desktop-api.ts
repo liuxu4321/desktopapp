@@ -18,6 +18,7 @@ import type {
   UpdateAiProviderSettingsInput,
 } from '@shared/types'
 import { createDesktopAPI } from '@shared/desktop-api'
+import { hasPdfSignature, isPdfFileName } from '@shared/document-file'
 
 let previewConfig: AppConfig = { theme: 'system', releaseChannel: 'stable' }
 let previewDocuments: DocumentRecord[] = createPreviewDocuments()
@@ -138,42 +139,59 @@ function selectBrowserFile(): Promise<SelectedFile | null> {
   })
 }
 
-function importBrowserDocument(role: DocumentImportRole): Promise<ImportedDocument | null> {
+function importBrowserDocument(role: DocumentImportRole): Promise<ImportedDocument[]> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = 'application/pdf,.pdf'
+    input.multiple = true
     input.hidden = true
 
     const finish = async (): Promise<void> => {
-      const file = input.files?.[0]
+      const files = Array.from(input.files ?? [])
       input.remove()
-      if (!file) {
-        resolve(null)
+      if (files.length === 0) {
+        resolve([])
         return
       }
 
       try {
-        const previewUrl = await readFileAsDataUrl(file)
-        const importedAt = new Date().toISOString()
-        const id = `${role === 'standard' ? 'STD' : 'DOC'}-${Date.now().toString(36).toUpperCase()}`
-        const compareStatus = role === 'candidate' ? '待比对' : undefined
-        const imported: ImportedDocument = {
-          id,
-          role,
-          name: file.name,
-          size: file.size,
-          pageCount: 1,
-          kind: 'unknown-pdf',
-          status: 'imported',
-          ...(compareStatus ? { compareStatus } : {}),
-          importedAt,
-          updatedAt: importedAt,
-          previewUrl,
+        if (files.some((file) => !isPdfFileName(file.name))) {
+          throw new Error('Only PDF documents can be imported.')
         }
-        previewDocuments = [toDocumentRecord(imported), ...previewDocuments]
-        previewUrls.set(id, previewUrl)
-        resolve(imported)
+
+        const importedDocuments = await Promise.all(
+          files.map(async (file): Promise<ImportedDocument> => {
+            const signature = new Uint8Array(await file.slice(0, 1024).arrayBuffer())
+            if (!hasPdfSignature(signature)) {
+              throw new Error('Only valid PDF documents can be imported.')
+            }
+
+            const previewUrl = await readFileAsDataUrl(file)
+            const importedAt = new Date().toISOString()
+            const id = `${role === 'standard' ? 'STD' : 'DOC'}-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`
+            const compareStatus = role === 'candidate' ? '待比对' : undefined
+            return {
+              id,
+              role,
+              name: file.name,
+              size: file.size,
+              pageCount: 1,
+              kind: 'unknown-pdf',
+              status: 'imported',
+              ...(compareStatus ? { compareStatus } : {}),
+              importedAt,
+              updatedAt: importedAt,
+              previewUrl,
+            }
+          }),
+        )
+
+        previewDocuments = [...importedDocuments.map(toDocumentRecord), ...previewDocuments]
+        for (const document of importedDocuments) {
+          if (document.previewUrl) previewUrls.set(document.id, document.previewUrl)
+        }
+        resolve(importedDocuments)
       } catch (cause) {
         reject(cause)
       }
