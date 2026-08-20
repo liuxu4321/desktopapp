@@ -84,7 +84,12 @@ export const useAppStore = defineStore('app', {
       }
     },
     async installUpdate() {
-      await desktopAPI.installUpdate()
+      this.error = null
+      try {
+        await desktopAPI.installUpdate()
+      } catch (error) {
+        this.error = friendlyError(error)
+      }
     },
     clearError() {
       this.error = null

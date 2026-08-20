@@ -14,6 +14,7 @@ jobs:
     outputs:
       channel: ${{ steps.meta.outputs.channel }}
       prerelease: ${{ steps.meta.outputs.prerelease }}
+      release_type: ${{ steps.meta.outputs.release_type }}
       strict_signing: ${{ steps.meta.outputs.strict_signing }}
     steps:
       - id: meta
@@ -23,27 +24,22 @@ jobs:
           if [[ "$TAG" == *-* ]]; then
             echo "channel=beta" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "release_type=prerelease" >> "$GITHUB_OUTPUT"
             echo "strict_signing=false" >> "$GITHUB_OUTPUT"
           else
             echo "channel=stable" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "release_type=release" >> "$GITHUB_OUTPUT"
             echo "strict_signing=true" >> "$GITHUB_OUTPUT"
           fi
 
   release:
     needs: prepare
-    name: Build ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: Build Windows
+    runs-on: windows-latest
     env:
       HAS_WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 != '' && 'true' || 'false' }}
       HAS_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD != '' && 'true' || 'false' }}
-      HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' && 'true' || 'false' }}
-      HAS_APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && 'true' || 'false' }}
-      HAS_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID != '' && 'true' || 'false' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -65,49 +61,38 @@ jobs:
           pnpm typecheck
           pnpm test
 
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$PACKAGE_VERSION" != "$TAG_VERSION" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package version ${PACKAGE_VERSION}." >&2
+            exit 1
+          fi
+
       - name: Require Windows signing for stable releases
-        if: matrix.os == 'windows-latest' && needs.prepare.outputs.strict_signing == 'true' && (env.HAS_WINDOWS_CERTIFICATE != 'true' || env.HAS_WINDOWS_CERTIFICATE_PASSWORD != 'true')
+        if: needs.prepare.outputs.strict_signing == 'true' && (env.HAS_WINDOWS_CERTIFICATE != 'true' || env.HAS_WINDOWS_CERTIFICATE_PASSWORD != 'true')
         shell: bash
         run: |
           echo "Stable Windows releases require WINDOWS_CERTIFICATE_BASE64 and WINDOWS_CERTIFICATE_PASSWORD." >&2
           exit 1
 
-      - name: Require Apple signing for stable releases
-        if: matrix.os == 'macos-latest' && needs.prepare.outputs.strict_signing == 'true' && (env.HAS_APPLE_ID != 'true' || env.HAS_APPLE_PASSWORD != 'true' || env.HAS_APPLE_TEAM_ID != 'true')
+      - name: Build and publish
         shell: bash
         run: |
-          echo "Stable macOS releases require APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID." >&2
-          exit 1
-
-      - name: Build and publish
-        run: pnpm release
+          pnpm build
+          pnpm exec electron-builder --publish always --config.publish.releaseType="${RELEASE_TYPE}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           UPDATE_CHANNEL: ${{ needs.prepare.outputs.channel }}
+          RELEASE_TYPE: ${{ needs.prepare.outputs.release_type }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ needs.prepare.outputs.strict_signing == 'true' && 'true' || 'false' }}
-          CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WIN_CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: desktopapp-${{ matrix.os }}
+          name: desktopapp-windows
           path: release/**
           if-no-files-found: error
-
-      - name: Create or update GitHub Release
-        shell: bash
-        run: |
-          PRERELEASE_FLAG=""
-          if [[ "${PRERELEASE}" == "true" ]]; then
-            PRERELEASE_FLAG="--prerelease"
-          fi
-
-          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
-            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes "Automated desktop release." ${PRERELEASE_FLAG}
-          gh release upload "${GITHUB_REF_NAME}" release/** --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}

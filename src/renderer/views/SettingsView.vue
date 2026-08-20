@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowLeft,
   Bell,
+  Bot,
   CircleUserRound,
   Download,
   Keyboard,
@@ -13,7 +14,7 @@ import {
   UserRound,
   Wrench,
 } from '@lucide/vue'
-import type { ThemePreference } from '@shared/types'
+import type { AiProviderSettings, ThemePreference } from '@shared/types'
 import { useAppStore } from '@renderer/stores/app'
 import { desktopAPI } from '@renderer/services/desktop-api'
 
@@ -24,6 +25,7 @@ type SettingsSection =
   | 'appearance'
   | 'notifications'
   | 'shortcuts'
+  | 'ai'
   | 'advanced'
   | 'account'
 
@@ -36,6 +38,14 @@ const launchAtStartup = ref(false)
 const reopenWindows = ref(true)
 const desktopNotifications = ref(true)
 const updateNotifications = ref(true)
+const aiSettings = ref<AiProviderSettings | null>(null)
+const aiApiKey = ref('')
+const aiBaseUrl = ref('https://dashscope.aliyuncs.com/compatible-mode/v1')
+const aiCompareModel = ref('qwen-plus')
+const aiOcrModel = ref('qwen3.5-ocr')
+const savingAiSettings = ref(false)
+const aiSettingsMessage = ref('')
+const aiSettingsError = ref('')
 
 const sections = [
   { id: 'general' as const, label: 'General', icon: Settings2 },
@@ -44,6 +54,7 @@ const sections = [
   { id: 'appearance' as const, label: 'Appearance', icon: Palette },
   { id: 'notifications' as const, label: 'Notifications', icon: Bell },
   { id: 'shortcuts' as const, label: 'Keyboard shortcuts', icon: Keyboard },
+  { id: 'ai' as const, label: 'AI 模型', icon: Bot },
   { id: 'advanced' as const, label: 'Advanced', icon: Wrench },
   { id: 'account' as const, label: 'Account', icon: CircleUserRound },
 ]
@@ -71,6 +82,67 @@ function returnToApp(): void {
 
 function openLogs(): void {
   void desktopAPI.openLogDirectory()
+}
+
+onMounted(() => void loadAiSettings())
+
+async function loadAiSettings(): Promise<void> {
+  try {
+    const settings = await desktopAPI.getAiProviderSettings()
+    applyAiSettings(settings)
+  } catch {
+    aiSettingsError.value = '无法读取 AI 配置。'
+  }
+}
+
+async function saveAiSettings(): Promise<void> {
+  savingAiSettings.value = true
+  aiSettingsMessage.value = ''
+  aiSettingsError.value = ''
+  try {
+    const apiKey = aiApiKey.value.trim()
+    const settings = await desktopAPI.updateAiProviderSettings({
+      baseUrl: aiBaseUrl.value.trim(),
+      compareModel: aiCompareModel.value.trim(),
+      ocrModel: aiOcrModel.value.trim(),
+      ...(apiKey ? { apiKey } : {}),
+    })
+    aiApiKey.value = ''
+    applyAiSettings(settings)
+    aiSettingsMessage.value = 'DashScope 配置已保存。'
+  } catch {
+    aiSettingsError.value = '保存失败，请检查地址、模型名称和 API Key。'
+  } finally {
+    savingAiSettings.value = false
+  }
+}
+
+async function clearAiApiKey(): Promise<void> {
+  savingAiSettings.value = true
+  aiSettingsMessage.value = ''
+  aiSettingsError.value = ''
+  try {
+    const settings = await desktopAPI.updateAiProviderSettings({
+      baseUrl: aiBaseUrl.value.trim(),
+      compareModel: aiCompareModel.value.trim(),
+      ocrModel: aiOcrModel.value.trim(),
+      clearApiKey: true,
+    })
+    aiApiKey.value = ''
+    applyAiSettings(settings)
+    aiSettingsMessage.value = 'API Key 已移除。'
+  } catch {
+    aiSettingsError.value = '无法移除 API Key。'
+  } finally {
+    savingAiSettings.value = false
+  }
+}
+
+function applyAiSettings(settings: AiProviderSettings): void {
+  aiSettings.value = settings
+  aiBaseUrl.value = settings.baseUrl
+  aiCompareModel.value = settings.compareModel
+  aiOcrModel.value = settings.ocrModel
 }
 </script>
 
@@ -221,6 +293,63 @@ function openLogs(): void {
             <div class="preference-row"><span>Global search</span><kbd>Cmd / Ctrl + K</kbd></div>
             <div class="preference-row"><span>Open preferences</span><kbd>Cmd / Ctrl + ,</kbd></div>
             <div class="preference-row"><span>Close dialog</span><kbd>Esc</kbd></div>
+          </div>
+        </section>
+
+        <section v-else-if="activeSection === 'ai'" class="preference-section">
+          <h2>DashScope</h2>
+          <div class="preference-group preference-form ai-settings-form">
+            <div class="ai-settings-status">
+              <span
+                class="ai-settings-indicator"
+                :class="{ configured: aiSettings?.apiKeyConfigured }"
+                aria-hidden="true"
+              ></span>
+              <strong>{{
+                aiSettings?.apiKeyConfigured ? 'API Key 已配置' : 'API Key 未配置'
+              }}</strong>
+            </div>
+            <label>
+              <span>API Key</span>
+              <input
+                v-model="aiApiKey"
+                type="password"
+                autocomplete="new-password"
+                :placeholder="aiSettings?.apiKeyConfigured ? '输入新密钥可替换现有配置' : 'sk-...'"
+              />
+            </label>
+            <label>
+              <span>服务地址</span>
+              <input v-model="aiBaseUrl" type="url" spellcheck="false" />
+            </label>
+            <label>
+              <span>文书比对模型</span>
+              <input v-model="aiCompareModel" spellcheck="false" />
+            </label>
+            <label>
+              <span>扫描文书 OCR 模型</span>
+              <input v-model="aiOcrModel" spellcheck="false" />
+            </label>
+            <p v-if="aiSettingsMessage" class="ai-settings-feedback success" role="status">
+              {{ aiSettingsMessage }}
+            </p>
+            <p v-if="aiSettingsError" class="ai-settings-feedback error" role="alert">
+              {{ aiSettingsError }}
+            </p>
+            <div class="preference-form-actions ai-settings-actions">
+              <button
+                v-if="aiSettings?.apiKeyConfigured"
+                class="secondary-button"
+                type="button"
+                :disabled="savingAiSettings"
+                @click="clearAiApiKey"
+              >
+                移除密钥
+              </button>
+              <button type="button" :disabled="savingAiSettings" @click="saveAiSettings">
+                {{ savingAiSettings ? '保存中' : '保存配置' }}
+              </button>
+            </div>
           </div>
         </section>
 

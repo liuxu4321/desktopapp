@@ -1,5 +1,4 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import HomeView from '@renderer/views/HomeView.vue'
 import SettingsView from '@renderer/views/SettingsView.vue'
 import AboutView from '@renderer/views/AboutView.vue'
 import ProfileView from '@renderer/views/ProfileView.vue'
@@ -9,11 +8,13 @@ import ChartsDemoView from '@renderer/views/ChartsDemoView.vue'
 import CardsDemoView from '@renderer/views/CardsDemoView.vue'
 import DetailDemoView from '@renderer/views/DetailDemoView.vue'
 import DialogsDemoView from '@renderer/views/DialogsDemoView.vue'
+import DocumentCompareView from '@renderer/views/DocumentCompareView.vue'
 
 export const router = createRouter({
   history: createWebHashHistory(),
   routes: [
-    { path: '/', name: 'home', component: HomeView },
+    { path: '/', redirect: '/document-compare' },
+    { path: '/document-compare', name: 'document-compare', component: DocumentCompareView },
     { path: '/settings', name: 'settings', component: SettingsView },
     { path: '/about', name: 'about', component: AboutView },
     { path: '/profile', name: 'profile', component: ProfileView },

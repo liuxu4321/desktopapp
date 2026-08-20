@@ -68,6 +68,7 @@ function itemContainsPath(item: MenuItem, path: string): boolean {
     >
       <component :is="item.icon" :size="19" aria-hidden="true" />
       <span v-if="!collapsed" class="menu-label">{{ item.label }}</span>
+      <span v-if="item.attention" class="menu-attention-dot" aria-label="有新版本"></span>
       <ChevronDown
         v-if="!collapsed"
         class="menu-chevron"
@@ -86,6 +87,7 @@ function itemContainsPath(item: MenuItem, path: string): boolean {
     >
       <component :is="item.icon" :size="19" aria-hidden="true" />
       <span v-if="!collapsed" class="menu-label">{{ item.label }}</span>
+      <span v-if="item.attention" class="menu-attention-dot" aria-label="有新版本"></span>
     </RouterLink>
 
     <div v-if="hasChildren && expanded && !collapsed" class="menu-children">

@@ -1,5 +1,5 @@
-appId: com.example.desktopapp
-productName: Desktop App
+appId: com.liuxu.documentcompare
+productName: 文书比对
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 asar: true
 directories:
@@ -12,8 +12,8 @@ extraMetadata:
   main: out/main/index.js
 publish:
   provider: github
-  owner: your-github-org
-  repo: your-repo
+  owner: liuxu4321
+  repo: desktopapp
   releaseType: release
 win:
   target:
