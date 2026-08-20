@@ -9,7 +9,9 @@ import {
   Eye,
   Glasses,
   Play,
+  RotateCcw,
   Search,
+  Square,
   Trash2,
   Upload,
   ZoomIn,
@@ -21,6 +23,8 @@ import PdfPreview from '@renderer/components/PdfPreview.vue'
 import { desktopAPI } from '@renderer/services/desktop-api'
 import type {
   AiComparisonResult,
+  ComparisonBatch,
+  ComparisonBatchItem,
   DocumentCompareStatus,
   DocumentComparisonProgress,
   DocumentProblemRecord,
@@ -111,6 +115,7 @@ const loadingData = ref(true)
 const dataError = ref('')
 const compareResolutionState = ref<'idle' | 'removing' | 'archiving'>('idle')
 const aiComparisonResult = ref<AiComparisonResult | null>(null)
+const comparisonBatch = ref<ComparisonBatch | null>(null)
 
 const standardDocuments = ref<StandardDocument[]>([])
 const candidateDocuments = ref<CandidateDocument[]>([])
@@ -173,6 +178,32 @@ const readyCount = computed(
   () => candidateDocuments.value.filter((document) => document.status === '待查看').length,
 )
 const problemCount = computed(() => archivedProblems.value.length)
+const comparisonBatchActive = computed(
+  () => comparisonBatch.value?.status === 'queued' || comparisonBatch.value?.status === 'running',
+)
+const comparisonBatchLocked = computed(
+  () => comparisonBatchActive.value || comparisonBatch.value?.status === 'paused',
+)
+const comparisonBatchRetryable = computed(
+  () =>
+    Boolean(comparisonBatch.value) &&
+    !comparisonBatchActive.value &&
+    (comparisonBatch.value?.status === 'paused' ||
+      (comparisonBatch.value?.items.some((item) => ['failed', 'cancelled'].includes(item.status)) ??
+        false)),
+)
+const comparisonBatchProcessedCount = computed(() =>
+  comparisonBatch.value
+    ? comparisonBatch.value.items.filter((item) =>
+        ['succeeded', 'failed', 'cancelled'].includes(item.status),
+      ).length
+    : 0,
+)
+const comparisonBatchPercent = computed(() =>
+  comparisonBatch.value
+    ? Math.round((comparisonBatchProcessedCount.value / comparisonBatch.value.totalCount) * 100)
+    : 0,
+)
 const aiCompareFindings = computed(() => aiComparisonResult.value?.findings ?? [])
 const aiHighRiskCount = computed(
   () => aiCompareFindings.value.filter((finding) => finding.severity === 'high').length,
@@ -204,15 +235,22 @@ const unsubscribeComparisonProgress = desktopAPI.onDocumentComparisonProgress((p
   }
   aiProgressEvents.value = aiProgressEvents.value.slice(-40)
 })
-onUnmounted(unsubscribeComparisonProgress)
+const unsubscribeBatchProgress = desktopAPI.onComparisonBatchProgress((batch) => {
+  applyComparisonBatch(batch)
+})
+onUnmounted(() => {
+  unsubscribeComparisonProgress()
+  unsubscribeBatchProgress()
+})
 
 async function loadDocumentData(): Promise<void> {
   loadingData.value = true
   dataError.value = ''
   try {
-    const [documents, problems] = await Promise.all([
+    const [documents, problems, latestBatch] = await Promise.all([
       desktopAPI.listDocuments(),
       desktopAPI.listDocumentProblems(),
+      desktopAPI.getLatestComparisonBatch(),
     ])
     standardDocuments.value = documents
       .filter((document) => document.role === 'standard')
@@ -226,6 +264,7 @@ async function loadDocumentData(): Promise<void> {
     selectedStandardId.value = standardDocuments.value[0]?.id ?? ''
     selectedCandidateId.value = candidateDocuments.value[0]?.id ?? ''
     selectedCandidateIds.value = []
+    if (latestBatch) applyComparisonBatch(latestBatch)
   } catch {
     dataError.value = '无法读取本地文书数据，请重新打开应用。'
   } finally {
@@ -381,10 +420,101 @@ async function markCompared(
 }
 
 async function compareSelectedCandidates(): Promise<void> {
+  const standard = selectedStandard.value
+  if (!standard) {
+    dataError.value = '请先选择一份标准文书。'
+    return
+  }
   const selected = candidateDocuments.value.filter((document) =>
     selectedCandidateIds.value.includes(document.id),
   )
-  for (const document of selected) await markCompared(document)
+  if (selected.length === 0 || comparisonBatchLocked.value) return
+  dataError.value = ''
+  try {
+    const batch = await desktopAPI.startComparisonBatch({
+      standardDocumentId: standard.id,
+      candidateDocumentIds: selected.map((document) => document.id),
+    })
+    applyComparisonBatch(batch)
+  } catch (error) {
+    dataError.value = getBatchErrorMessage(error)
+  }
+}
+
+async function cancelActiveComparisonBatch(): Promise<void> {
+  const batch = comparisonBatch.value
+  if (!batch || !comparisonBatchLocked.value) return
+  try {
+    applyComparisonBatch(await desktopAPI.cancelComparisonBatch(batch.id))
+  } catch {
+    dataError.value = '无法取消当前批量分析任务。'
+  }
+}
+
+async function retryComparisonBatchFailures(): Promise<void> {
+  const batch = comparisonBatch.value
+  if (!batch || !comparisonBatchRetryable.value) return
+  dataError.value = ''
+  try {
+    applyComparisonBatch(await desktopAPI.retryComparisonBatch(batch.id))
+  } catch (error) {
+    dataError.value = getBatchErrorMessage(error)
+  }
+}
+
+function applyComparisonBatch(batch: ComparisonBatch): void {
+  comparisonBatch.value = batch
+  for (const item of batch.items) {
+    const document = candidateDocuments.value.find(
+      (candidate) => candidate.id === item.candidateDocumentId,
+    )
+    if (!document) continue
+    if (isBatchItemActive(item)) document.status = '比对中'
+    if (item.status === 'succeeded') document.status = '待查看'
+    if (['failed', 'cancelled'].includes(item.status) && document.status === '比对中') {
+      document.status = '待比对'
+    }
+    if (item.finishedAt) document.updatedAt = formatImportedAt(item.finishedAt)
+  }
+}
+
+function getCandidateBatchItem(candidateDocumentId: string): ComparisonBatchItem | undefined {
+  return comparisonBatch.value?.items.find(
+    (item) => item.candidateDocumentId === candidateDocumentId,
+  )
+}
+
+function isBatchItemActive(item: ComparisonBatchItem | undefined): boolean {
+  return Boolean(
+    item &&
+    ['queued', 'preparing', 'extracting', 'ocr', 'comparing', 'saving'].includes(item.status),
+  )
+}
+
+function isCandidateBatchActive(document: CandidateDocument): boolean {
+  const item = getCandidateBatchItem(document.id)
+  return (
+    (comparisonBatchActive.value && isBatchItemActive(item)) ||
+    (comparisonBatch.value?.status === 'paused' && item?.status !== 'succeeded')
+  )
+}
+
+function isStandardBatchActive(document: StandardDocument): boolean {
+  return comparisonBatchLocked.value && comparisonBatch.value?.standardDocumentId === document.id
+}
+
+function getCandidateProgress(document: CandidateDocument): string {
+  const item = getCandidateBatchItem(document.id)
+  if (!item) return ''
+  if (item.errorMessage) return item.errorMessage
+  if (item.status === 'succeeded') return 'AI 对比完成'
+  if (item.status === 'cancelled') return '已取消'
+  return item.progressMessage
+}
+
+function getBatchErrorMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : ''
+  return detail || '批量分析启动失败，请检查 AI 配置和文书状态。'
 }
 
 function toggleFilteredCandidates(event: Event): void {
@@ -746,6 +876,7 @@ function formatImportedAt(value: string): string {
                     name="standard-document"
                     :value="document.id"
                     :aria-label="`选择 ${document.name} 作为标准文书`"
+                    :disabled="comparisonBatchLocked"
                   />
                 </td>
                 <td>
@@ -770,6 +901,7 @@ function formatImportedAt(value: string): string {
                       type="button"
                       aria-label="删除标准文书"
                       title="删除"
+                      :disabled="isStandardBatchActive(document)"
                       @click="removeStandard(document)"
                     >
                       <Trash2 :size="15" aria-hidden="true" />
@@ -811,13 +943,56 @@ function formatImportedAt(value: string): string {
             </button>
             <button
               type="button"
-              :disabled="selectedCandidateIds.length === 0"
+              :disabled="selectedCandidateIds.length === 0 || comparisonBatchLocked"
               @click="compareSelectedCandidates"
             >
-              <Play :size="16" aria-hidden="true" />批量比对
+              <Play :size="16" aria-hidden="true" />{{
+                comparisonBatchActive && comparisonBatch
+                  ? `分析中 ${comparisonBatchProcessedCount}/${comparisonBatch.totalCount}`
+                  : '批量比对'
+              }}
             </button>
           </div>
         </header>
+
+        <div v-if="comparisonBatch" class="batch-progress-strip" aria-live="polite">
+          <div class="batch-progress-copy">
+            <strong>{{ comparisonBatch.progressMessage }}</strong>
+            <small>
+              标准文书：{{ comparisonBatch.standardDocumentName }} · 成功
+              {{ comparisonBatch.completedCount }} · 失败 {{ comparisonBatch.failedCount }}
+            </small>
+          </div>
+          <progress
+            :value="comparisonBatchPercent"
+            max="100"
+            :aria-label="`批量分析进度 ${comparisonBatchPercent}%`"
+          />
+          <div class="batch-progress-actions">
+            <button
+              v-if="comparisonBatchLocked"
+              class="secondary-button batch-command-button"
+              type="button"
+              @click="cancelActiveComparisonBatch"
+            >
+              <Square :size="14" aria-hidden="true" />取消
+            </button>
+            <button
+              v-if="comparisonBatchRetryable"
+              class="secondary-button batch-command-button"
+              type="button"
+              @click="retryComparisonBatchFailures"
+            >
+              <RotateCcw :size="14" aria-hidden="true" />{{
+                comparisonBatch.status === 'cancelled'
+                  ? '重新分析未完成项'
+                  : comparisonBatch.status === 'paused'
+                    ? '继续分析'
+                    : '重试失败项'
+              }}
+            </button>
+          </div>
+        </div>
 
         <div class="data-table-frame document-data-frame">
           <table class="data-table document-data-table candidate-data-table">
@@ -851,6 +1026,7 @@ function formatImportedAt(value: string): string {
                     type="checkbox"
                     :value="document.id"
                     :aria-label="`选择 ${document.name}`"
+                    :disabled="isCandidateBatchActive(document)"
                   />
                 </td>
                 <td>
@@ -864,7 +1040,18 @@ function formatImportedAt(value: string): string {
                   </button>
                 </td>
                 <td>
-                  <span class="status-badge" :class="document.status">{{ document.status }}</span>
+                  <div class="candidate-status-cell">
+                    <span class="status-badge" :class="document.status">{{ document.status }}</span>
+                    <small
+                      v-if="getCandidateProgress(document)"
+                      :class="{
+                        'batch-item-error': getCandidateBatchItem(document.id)?.status === 'failed',
+                      }"
+                      :title="getCandidateProgress(document)"
+                    >
+                      {{ getCandidateProgress(document) }}
+                    </small>
+                  </div>
                 </td>
                 <td>{{ document.pages }}</td>
                 <td>{{ document.updatedAt }}</td>
@@ -874,6 +1061,7 @@ function formatImportedAt(value: string): string {
                       type="button"
                       aria-label="比对文书"
                       title="比对"
+                      :disabled="isCandidateBatchActive(document)"
                       @click="markCompared(document)"
                     >
                       <Play :size="15" aria-hidden="true" />
@@ -899,6 +1087,7 @@ function formatImportedAt(value: string): string {
                       type="button"
                       aria-label="删除待比对文书"
                       title="删除"
+                      :disabled="isCandidateBatchActive(document)"
                       @click="removeCandidate(document)"
                     >
                       <Trash2 :size="15" aria-hidden="true" />
@@ -1473,6 +1662,75 @@ function formatImportedAt(value: string): string {
   display: flex;
   flex: 0 0 auto;
   gap: 8px;
+}
+
+.batch-progress-strip {
+  align-items: center;
+  background: color-mix(in srgb, #256f73 6%, Canvas);
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(220px, 1fr) minmax(160px, 280px) auto;
+  min-height: 54px;
+  padding: 9px 14px;
+}
+
+.batch-progress-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.batch-progress-copy strong,
+.batch-progress-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-progress-copy strong {
+  font-size: 13px;
+}
+
+.batch-progress-copy small,
+.candidate-status-cell small {
+  color: color-mix(in srgb, CanvasText 58%, transparent);
+  font-size: 11px;
+}
+
+.batch-progress-strip progress {
+  accent-color: #256f73;
+  height: 8px;
+  width: 100%;
+}
+
+.batch-command-button {
+  min-height: 32px;
+  padding: 5px 9px;
+}
+
+.batch-progress-actions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.candidate-status-cell {
+  align-items: flex-start;
+  display: grid;
+  gap: 4px;
+  max-width: 230px;
+}
+
+.candidate-status-cell small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidate-status-cell .batch-item-error {
+  color: #b9433f;
 }
 
 .status-filter-select {
@@ -2263,6 +2521,15 @@ function formatImportedAt(value: string): string {
   .viewer-toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .batch-progress-strip {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .batch-progress-actions {
+    justify-self: start;
   }
 }
 </style>

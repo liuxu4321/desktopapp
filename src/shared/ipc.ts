@@ -2,7 +2,9 @@ import type {
   AiComparisonResult,
   AiProviderSettings,
   AppConfig,
+  ComparisonBatch,
   CompareDocumentsInput,
+  CreateComparisonBatchInput,
   CreateDocumentProblemInput,
   DocumentProblemRecord,
   DocumentRecord,
@@ -35,6 +37,11 @@ export const ipcChannels = {
   aiSettingsUpdate: 'ai-settings:update',
   documentsCompare: 'documents:compare',
   documentsCompareProgress: 'documents:compare-progress',
+  comparisonBatchStart: 'comparison-batch:start',
+  comparisonBatchLatest: 'comparison-batch:latest',
+  comparisonBatchRetry: 'comparison-batch:retry',
+  comparisonBatchCancel: 'comparison-batch:cancel',
+  comparisonBatchProgress: 'comparison-batch:progress',
   documentComparisonLatest: 'document-comparison:latest',
   candidateComparisonLatest: 'candidate-comparison:latest',
   appOpenLogDirectory: 'app:open-log-directory',
@@ -112,6 +119,22 @@ export interface IpcInvokeMap {
   [ipcChannels.documentsCompare]: {
     args: [input: CompareDocumentsInput]
     result: AiComparisonResult
+  }
+  [ipcChannels.comparisonBatchStart]: {
+    args: [input: CreateComparisonBatchInput]
+    result: ComparisonBatch
+  }
+  [ipcChannels.comparisonBatchLatest]: {
+    args: []
+    result: ComparisonBatch | null
+  }
+  [ipcChannels.comparisonBatchRetry]: {
+    args: [batchId: string]
+    result: ComparisonBatch
+  }
+  [ipcChannels.comparisonBatchCancel]: {
+    args: [batchId: string]
+    result: ComparisonBatch
   }
   [ipcChannels.documentComparisonLatest]: {
     args: [input: CompareDocumentsInput]

@@ -3,6 +3,7 @@ import { ipcChannels } from '@shared/ipc'
 import {
   appConfigSchema,
   aiComparisonOutputSchema,
+  createComparisonBatchSchema,
   createDocumentProblemSchema,
   documentIdSchema,
   externalUrlSchema,
@@ -45,6 +46,27 @@ describe('IPC contracts and schemas', () => {
         page: 1,
         severity: 'medium',
         confidence: 1.2,
+      }),
+    ).toThrow()
+  })
+
+  it('validates unique candidate IDs for a comparison batch', () => {
+    expect(
+      createComparisonBatchSchema.parse({
+        standardDocumentId: 'STD-TEST-1',
+        candidateDocumentIds: ['DOC-TEST-1', 'DOC-TEST-2'],
+      }).candidateDocumentIds,
+    ).toHaveLength(2)
+    expect(() =>
+      createComparisonBatchSchema.parse({
+        standardDocumentId: 'STD-TEST-1',
+        candidateDocumentIds: ['DOC-TEST-1', 'DOC-TEST-1'],
+      }),
+    ).toThrow()
+    expect(() =>
+      createComparisonBatchSchema.parse({
+        standardDocumentId: 'DOC-WRONG-ROLE',
+        candidateDocumentIds: ['DOC-TEST-1'],
       }),
     ).toThrow()
   })

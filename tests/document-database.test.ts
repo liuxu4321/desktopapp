@@ -89,6 +89,74 @@ describe('DocumentDatabase', () => {
       candidatePage: 2,
     })
 
+    const batch = database.createComparisonBatch({
+      standardDocumentId: 'STD-TEST-1',
+      candidateDocumentIds: ['DOC-TEST-1'],
+      compareModel: 'qwen-plus',
+    })
+    expect(batch).toMatchObject({
+      status: 'queued',
+      totalCount: 1,
+      completedCount: 0,
+      failedCount: 0,
+    })
+    const batchItem = batch.items[0]
+    expect(batchItem).toMatchObject({
+      candidateDocumentId: 'DOC-TEST-1',
+      candidateName: '已重命名.pdf',
+      status: 'queued',
+    })
+    if (!batchItem) throw new Error('Expected a comparison batch item.')
+
+    database.startComparisonBatchItem(batchItem.id)
+    database.updateComparisonBatchItemProgress(batchItem.id, 'ocr', '正在识别第 1 页', 1, 3)
+    database.failComparisonBatchItem(batchItem.id, 'OCR 服务暂时不可用')
+    expect(database.refreshComparisonBatchCounts(batch.id)).toMatchObject({
+      completedCount: 0,
+      failedCount: 1,
+    })
+
+    const retriedBatch = database.retryComparisonBatch(batch.id)
+    expect(retriedBatch.items[0]).toMatchObject({ status: 'queued', attemptCount: 1 })
+    database.startComparisonBatchItem(batchItem.id)
+    database.completeComparisonBatchItem(batchItem.id, comparison.id)
+    expect(database.refreshComparisonBatchCounts(batch.id)).toMatchObject({
+      completedCount: 1,
+      failedCount: 0,
+    })
+    database.updateComparisonBatch(batch.id, { status: 'completed', markFinished: true })
+
+    const cancelledBatch = database.createComparisonBatch({
+      standardDocumentId: 'STD-TEST-1',
+      candidateDocumentIds: ['DOC-TEST-1'],
+      compareModel: 'qwen-plus',
+    })
+    expect(database.cancelComparisonBatch(cancelledBatch.id)).toMatchObject({
+      status: 'cancelled',
+      items: [expect.objectContaining({ status: 'cancelled' })],
+    })
+
+    const interruptedBatch = database.createComparisonBatch({
+      standardDocumentId: 'STD-TEST-1',
+      candidateDocumentIds: ['DOC-TEST-1'],
+      compareModel: 'qwen-plus',
+    })
+    database.updateComparisonBatch(interruptedBatch.id, {
+      status: 'running',
+      markStarted: true,
+    })
+    const interruptedItem = interruptedBatch.items[0]
+    if (!interruptedItem) throw new Error('Expected an interrupted batch item.')
+    database.startComparisonBatchItem(interruptedItem.id)
+    expect(database.recoverInterruptedComparisonBatches()).toContain(interruptedBatch.id)
+    expect(database.getComparisonBatch(interruptedBatch.id)).toMatchObject({
+      status: 'queued',
+      items: [expect.objectContaining({ status: 'queued' })],
+    })
+    expect(database.isDocumentInActiveComparisonBatch('DOC-TEST-1')).toBe(true)
+    database.cancelComparisonBatch(interruptedBatch.id)
+    expect(database.isDocumentInActiveComparisonBatch('DOC-TEST-1')).toBe(false)
+
     const problem = database.createProblem({
       documentId: 'DOC-TEST-1',
       type: '关键字段变化',

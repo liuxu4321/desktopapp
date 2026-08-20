@@ -128,6 +128,58 @@ export interface CompareDocumentsInput {
   candidateDocumentId: string
 }
 
+export type ComparisonBatchStatus =
+  'queued' | 'running' | 'completed' | 'partial_failure' | 'paused' | 'cancelled'
+
+export type ComparisonBatchItemStatus =
+  | 'queued'
+  | 'preparing'
+  | 'extracting'
+  | 'ocr'
+  | 'comparing'
+  | 'saving'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+
+export interface CreateComparisonBatchInput {
+  standardDocumentId: string
+  candidateDocumentIds: string[]
+}
+
+export interface ComparisonBatchItem {
+  id: string
+  batchId: string
+  candidateDocumentId: string
+  candidateName: string
+  status: ComparisonBatchItemStatus
+  progressMessage: string
+  currentPage?: number
+  totalPages?: number
+  attemptCount: number
+  comparisonId?: string
+  errorMessage?: string
+  startedAt?: string
+  finishedAt?: string
+}
+
+export interface ComparisonBatch {
+  id: string
+  standardDocumentId: string
+  standardDocumentName: string
+  status: ComparisonBatchStatus
+  totalCount: number
+  completedCount: number
+  failedCount: number
+  compareModel: string
+  progressMessage: string
+  errorMessage?: string
+  createdAt: string
+  startedAt?: string
+  finishedAt?: string
+  items: ComparisonBatchItem[]
+}
+
 export type DocumentComparisonProgressStage =
   'preparing' | 'extracting' | 'ocr' | 'comparing' | 'saving' | 'complete'
 
@@ -187,9 +239,14 @@ export interface DesktopAPI {
   getAiProviderSettings(): Promise<AiProviderSettings>
   updateAiProviderSettings(input: UpdateAiProviderSettingsInput): Promise<AiProviderSettings>
   compareDocuments(input: CompareDocumentsInput): Promise<AiComparisonResult>
+  startComparisonBatch(input: CreateComparisonBatchInput): Promise<ComparisonBatch>
+  getLatestComparisonBatch(): Promise<ComparisonBatch | null>
+  retryComparisonBatch(batchId: string): Promise<ComparisonBatch>
+  cancelComparisonBatch(batchId: string): Promise<ComparisonBatch>
   getLatestDocumentComparison(input: CompareDocumentsInput): Promise<AiComparisonResult | null>
   getLatestCandidateComparison(candidateDocumentId: string): Promise<AiComparisonResult | null>
   onDocumentComparisonProgress(callback: (progress: DocumentComparisonProgress) => void): () => void
+  onComparisonBatchProgress(callback: (batch: ComparisonBatch) => void): () => void
   openLogDirectory(): Promise<void>
   getConfig(): Promise<AppConfig>
   setTheme(theme: ThemePreference): Promise<AppConfig>

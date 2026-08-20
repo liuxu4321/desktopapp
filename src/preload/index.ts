@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { ipcChannels } from '@shared/ipc'
 import type { DesktopAPI } from './api'
-import type { DocumentComparisonProgress, UpdateState } from '@shared/types'
+import type { ComparisonBatch, DocumentComparisonProgress, UpdateState } from '@shared/types'
 
 const api: DesktopAPI = {
   getVersion: () => ipcRenderer.invoke(ipcChannels.appGetVersion),
@@ -20,6 +20,11 @@ const api: DesktopAPI = {
   getAiProviderSettings: () => ipcRenderer.invoke(ipcChannels.aiSettingsGet),
   updateAiProviderSettings: (input) => ipcRenderer.invoke(ipcChannels.aiSettingsUpdate, input),
   compareDocuments: (input) => ipcRenderer.invoke(ipcChannels.documentsCompare, input),
+  startComparisonBatch: (input) => ipcRenderer.invoke(ipcChannels.comparisonBatchStart, input),
+  getLatestComparisonBatch: () => ipcRenderer.invoke(ipcChannels.comparisonBatchLatest),
+  retryComparisonBatch: (batchId) => ipcRenderer.invoke(ipcChannels.comparisonBatchRetry, batchId),
+  cancelComparisonBatch: (batchId) =>
+    ipcRenderer.invoke(ipcChannels.comparisonBatchCancel, batchId),
   getLatestDocumentComparison: (input) =>
     ipcRenderer.invoke(ipcChannels.documentComparisonLatest, input),
   getLatestCandidateComparison: (candidateDocumentId) =>
@@ -33,6 +38,13 @@ const api: DesktopAPI = {
     }
     ipcRenderer.on(ipcChannels.documentsCompareProgress, listener)
     return () => ipcRenderer.removeListener(ipcChannels.documentsCompareProgress, listener)
+  },
+  onComparisonBatchProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, batch: ComparisonBatch): void => {
+      callback(batch)
+    }
+    ipcRenderer.on(ipcChannels.comparisonBatchProgress, listener)
+    return () => ipcRenderer.removeListener(ipcChannels.comparisonBatchProgress, listener)
   },
   openLogDirectory: () => ipcRenderer.invoke(ipcChannels.appOpenLogDirectory),
   getConfig: () => ipcRenderer.invoke(ipcChannels.configGet),
