@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { desktopAPI } from '@renderer/services/desktop-api'
+import { resolveThemePreference } from '@shared/theme'
 import type {
   AppConfig,
   PlatformInfo,
@@ -18,6 +19,9 @@ interface AppState {
   loading: boolean
   error: string | null
 }
+
+let systemThemeQuery: MediaQueryList | null = null
+let systemThemeListener: ((event: MediaQueryListEvent) => void) | null = null
 
 export const useAppStore = defineStore('app', {
   state: (): AppState => ({
@@ -95,10 +99,33 @@ export const useAppStore = defineStore('app', {
       this.error = null
     },
     applyTheme(theme: ThemePreference) {
-      document.documentElement.dataset.theme = theme
+      stopSystemThemeListener()
+
+      const root = document.documentElement
+      root.dataset.themePreference = theme
+
+      if (theme !== 'system') {
+        root.dataset.theme = resolveThemePreference(theme, false)
+        return
+      }
+
+      systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
+      root.dataset.theme = resolveThemePreference(theme, systemThemeQuery.matches)
+      systemThemeListener = (event) => {
+        root.dataset.theme = resolveThemePreference('system', event.matches)
+      }
+      systemThemeQuery.addEventListener('change', systemThemeListener)
     },
   },
 })
+
+function stopSystemThemeListener(): void {
+  if (systemThemeQuery && systemThemeListener) {
+    systemThemeQuery.removeEventListener('change', systemThemeListener)
+  }
+  systemThemeQuery = null
+  systemThemeListener = null
+}
 
 function friendlyError(error: unknown): string {
   console.error(error)
