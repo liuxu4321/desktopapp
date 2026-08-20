@@ -27,7 +27,7 @@ jobs:
             echo "release_type=prerelease" >> "$GITHUB_OUTPUT"
             echo "strict_signing=false" >> "$GITHUB_OUTPUT"
           else
-            echo "channel=stable" >> "$GITHUB_OUTPUT"
+            echo "channel=latest" >> "$GITHUB_OUTPUT"
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
             echo "release_type=release" >> "$GITHUB_OUTPUT"
             echo "strict_signing=true" >> "$GITHUB_OUTPUT"
@@ -83,7 +83,7 @@ jobs:
         shell: bash
         run: |
           pnpm build
-          pnpm exec electron-builder --publish always --config.publish.releaseType="${RELEASE_TYPE}"
+          pnpm exec electron-builder --publish always --config.publish.releaseType="${RELEASE_TYPE}" --config.publish.channel="${UPDATE_CHANNEL}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           UPDATE_CHANNEL: ${{ needs.prepare.outputs.channel }}

@@ -2,6 +2,7 @@ appId: com.liuxu.documentcompare
 productName: 文书比对
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 asar: true
+generateUpdatesFilesForAllChannels: true
 directories:
   buildResources: build
   output: release
@@ -14,6 +15,7 @@ publish:
   provider: github
   owner: liuxu4321
   repo: desktopapp
+  channel: latest
   releaseType: release
 win:
   target:
