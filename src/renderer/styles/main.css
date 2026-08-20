@@ -58,7 +58,7 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr) 0;
+  grid-template-columns: 248px minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -66,15 +66,7 @@ button:disabled {
 }
 
 .app-shell.sidebar-collapsed {
-  grid-template-columns: 68px minmax(0, 1fr) 0;
-}
-
-.app-shell.right-panel-open {
-  grid-template-columns: 248px minmax(0, 1fr) 320px;
-}
-
-.app-shell.sidebar-collapsed.right-panel-open {
-  grid-template-columns: 68px minmax(0, 1fr) 320px;
+  grid-template-columns: 68px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -201,8 +193,25 @@ nav {
   height: 40px;
   overflow: hidden;
   padding: 0 10px;
+  position: relative;
   text-decoration: none;
   white-space: nowrap;
+}
+
+.menu-attention-dot {
+  background: #e0524d;
+  border: 2px solid #192126;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  height: 9px;
+  margin-left: auto;
+  width: 9px;
+}
+
+.sidebar-collapsed .menu-attention-dot {
+  position: absolute;
+  right: 5px;
+  top: 5px;
 }
 
 .nav-link:hover,
@@ -415,10 +424,6 @@ nav {
   overflow-y: auto;
   padding: 14px 24px 24px;
   position: relative;
-}
-
-.app-shell:not(.right-panel-open) .content {
-  padding-right: 64px;
 }
 
 .page {
@@ -1859,6 +1864,45 @@ progress {
   justify-content: flex-end;
 }
 
+.ai-settings-form {
+  gap: 14px;
+}
+
+.ai-settings-status {
+  align-items: center;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.ai-settings-indicator {
+  background: #a8afb4;
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+
+.ai-settings-indicator.configured {
+  background: #2f7857;
+}
+
+.ai-settings-feedback {
+  font-size: 13px;
+  margin: 0;
+}
+
+.ai-settings-feedback.success {
+  color: #2f7857;
+}
+
+.ai-settings-feedback.error {
+  color: #b9433f;
+}
+
+.ai-settings-actions {
+  gap: 8px;
+}
+
 .theme-control {
   margin-top: 6px;
 }
@@ -1997,19 +2041,11 @@ progress {
 
 @media (max-width: 760px) {
   .app-shell {
-    grid-template-columns: 200px minmax(0, 1fr) 0;
+    grid-template-columns: 200px minmax(0, 1fr);
   }
 
   .app-shell.sidebar-collapsed {
-    grid-template-columns: 68px minmax(0, 1fr) 0;
-  }
-
-  .app-shell.right-panel-open {
-    grid-template-columns: 200px minmax(0, 1fr) 280px;
-  }
-
-  .app-shell.sidebar-collapsed.right-panel-open {
-    grid-template-columns: 68px minmax(0, 1fr) 280px;
+    grid-template-columns: 68px minmax(0, 1fr);
   }
 
   .right-panel-inner {

@@ -3,6 +3,7 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { configureLogging, log } from '@main/logging'
 import { registerIpcHandlers } from '@main/ipc'
 import { createMainWindow } from '@main/window'
+import { closeDocumentDatabase } from '@main/services/document-store'
 import { UpdateService } from '@main/updater'
 
 configureLogging()
@@ -22,7 +23,7 @@ if (!singleInstanceLock) {
   })
 
   app.whenReady().then(() => {
-    electronApp.setAppUserModelId('com.example.desktopapp')
+    electronApp.setAppUserModelId('com.liuxu.documentcompare')
 
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window)
@@ -56,4 +57,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('will-quit', () => {
+  closeDocumentDatabase()
 })

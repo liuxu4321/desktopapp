@@ -35,26 +35,26 @@ export class UpdateService {
 
   initialize(): void {
     autoUpdater.on('checking-for-update', () => {
-      this.setState({ status: 'checking', message: 'Checking for updates...' })
+      this.setState({ status: 'checking', message: '正在检查新版本...' })
     })
 
     autoUpdater.on('update-available', (info) => {
       this.setState({
         status: 'available',
-        message: `Version ${info.version} is available. Downloading...`,
+        message: `发现新版本 v${info.version}，正在下载...`,
         version: info.version,
       })
     })
 
     autoUpdater.on('update-not-available', () => {
       this.checkInProgress = false
-      this.setState({ status: 'not-available', message: 'You are running the latest version.' })
+      this.setState({ status: 'not-available', message: '当前已是最新版本。' })
     })
 
     autoUpdater.on('download-progress', (progress) => {
       this.setState({
         status: 'downloading',
-        message: 'Downloading update...',
+        message: '正在下载新版本...',
         progress: {
           percent: progress.percent,
           transferred: progress.transferred,
@@ -68,7 +68,7 @@ export class UpdateService {
       this.checkInProgress = false
       this.setState({
         status: 'downloaded',
-        message: 'Update downloaded. Restart to install when you are ready.',
+        message: '新版本已下载完成，可以重启应用并安装。',
         version: info.version,
       })
     })
@@ -77,7 +77,7 @@ export class UpdateService {
       this.checkInProgress = false
       this.setState({
         status: 'error',
-        message: 'Update check failed. Please check your network and try again.',
+        message: '检查更新失败，请确认网络连接后重试。',
         error: error.message,
       })
       log.warn('Update error', error)
@@ -98,7 +98,7 @@ export class UpdateService {
     if (!canUseBuiltInAutoUpdate(process.platform)) {
       this.setState({
         status: 'not-available',
-        message: 'Linux builds should be updated through the app store or system package manager.',
+        message: '当前平台请通过应用商店或系统包管理器进行升级。',
       })
       return this.state
     }
@@ -124,24 +124,24 @@ export class UpdateService {
   private async runMockUpdateFlow(): Promise<UpdateState> {
     if (this.checkInProgress) return this.state
     this.checkInProgress = true
-    this.setState({ status: 'checking', message: 'Mock update check in development...' })
+    this.setState({ status: 'checking', message: '开发环境：正在模拟检查更新...' })
     await wait(350)
     this.setState({
       status: 'available',
-      message: 'Mock beta/stable update available. Simulating download...',
+      message: '开发环境：发现模拟新版本，正在下载...',
       version: '0.1.1-mock',
     })
     await wait(350)
     this.setState({
       status: 'downloading',
-      message: 'Mock update downloading...',
+      message: '开发环境：正在下载模拟更新...',
       progress: { percent: 65, transferred: 65, total: 100, bytesPerSecond: 1024 },
     })
     await wait(350)
     this.checkInProgress = false
     this.setState({
       status: 'downloaded',
-      message: 'Mock update downloaded. Restart is disabled in development.',
+      message: '开发环境：模拟更新已下载，正式安装包中可重启安装。',
       version: '0.1.1-mock',
       progress: { percent: 100, transferred: 100, total: 100, bytesPerSecond: 0 },
     })

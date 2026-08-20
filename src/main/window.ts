@@ -19,7 +19,7 @@ export function createMainWindow(): BrowserWindow {
     minWidth: 900,
     minHeight: 620,
     show: false,
-    title: 'Desktop App',
+    title: '文书比对',
     backgroundColor: '#101418',
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),

@@ -8,7 +8,6 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRightOpen,
   Search,
   Settings,
   UserRound,
@@ -16,8 +15,8 @@ import {
 import { useAppStore } from '@renderer/stores/app'
 import AppDialog from '@renderer/components/AppDialog.vue'
 import SidebarMenuItem from '@renderer/components/SidebarMenuItem.vue'
-import RightPanel from '@renderer/components/right-panel/RightPanel.vue'
 import { sidebarMenuItems } from '@renderer/config/navigation'
+import { hasUpdateAvailable } from '@shared/update-state'
 import type { SidebarMenuItem as MenuItem } from '@renderer/types/navigation'
 
 const store = useAppStore()
@@ -31,19 +30,17 @@ const userMenu = ref<HTMLElement | null>(null)
 const userMenuOpen = ref(false)
 const accountDialogOpen = ref(false)
 const signOutDialogOpen = ref(false)
-const rightPanelOpen = ref(true)
-
-const menuItems: MenuItem[] = sidebarMenuItems
+const menuItems = computed<MenuItem[]>(() =>
+  sidebarMenuItems.map((item) => ({
+    ...item,
+    attention: item.id === 'about' && hasUpdateAvailable(store.updateState),
+  })),
+)
 
 const filteredMenuItems = computed(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase()
-  return query ? filterMenuItems(menuItems, query) : menuItems
+  return query ? filterMenuItems(menuItems.value, query) : menuItems.value
 })
-
-const activePageLabel = computed(
-  () =>
-    findMenuLabel(menuItems, route.path) ?? (route.name === 'profile' ? 'Profile' : 'Application'),
-)
 
 function filterMenuItems(items: MenuItem[], query: string): MenuItem[] {
   return items.flatMap((item) => {
@@ -51,15 +48,6 @@ function filterMenuItems(items: MenuItem[], query: string): MenuItem[] {
     const children = item.children ? filterMenuItems(item.children, query) : []
     return children.length ? [{ ...item, children }] : []
   })
-}
-
-function findMenuLabel(items: MenuItem[], path: string): string | null {
-  for (const item of items) {
-    if (item.to === path) return item.label
-    const childLabel = item.children ? findMenuLabel(item.children, path) : null
-    if (childLabel) return childLabel
-  }
-  return null
 }
 
 function toggleSidebar(): void {
@@ -128,16 +116,12 @@ onBeforeUnmount(() => {
 <template>
   <RouterView v-if="isPreferencesRoute" />
 
-  <div
-    v-else
-    class="app-shell"
-    :class="{ 'sidebar-collapsed': collapsed, 'right-panel-open': rightPanelOpen }"
-  >
+  <div v-else class="app-shell" :class="{ 'sidebar-collapsed': collapsed }">
     <aside class="sidebar">
       <section class="sidebar-top">
         <div class="sidebar-heading">
           <div class="app-identity">
-            <strong>Desktop App</strong>
+            <strong>文书比对</strong>
             <small>v{{ store.version || '...' }}</small>
           </div>
 
@@ -252,25 +236,9 @@ onBeforeUnmount(() => {
     </aside>
 
     <main class="content">
-      <button
-        v-if="!rightPanelOpen"
-        class="right-panel-launch"
-        type="button"
-        aria-label="Show right panel"
-        title="Show right panel"
-        @click="rightPanelOpen = true"
-      >
-        <PanelRightOpen :size="18" aria-hidden="true" />
-      </button>
       <div v-if="store.loading" class="state-card">Loading application state...</div>
       <RouterView />
     </main>
-
-    <RightPanel
-      :open="rightPanelOpen"
-      :page-label="activePageLabel"
-      @close="rightPanelOpen = false"
-    />
 
     <AppDialog
       :open="accountDialogOpen"

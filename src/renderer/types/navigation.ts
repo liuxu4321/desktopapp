@@ -7,4 +7,5 @@ export interface SidebarMenuItem {
   to?: string
   children?: SidebarMenuItem[]
   defaultOpen?: boolean
+  attention?: boolean
 }
