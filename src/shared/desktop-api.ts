@@ -22,12 +22,19 @@ export function createDesktopAPI(
     updateAiProviderSettings:
       partialBridge?.updateAiProviderSettings ?? fallback.updateAiProviderSettings,
     compareDocuments: partialBridge?.compareDocuments ?? fallback.compareDocuments,
+    startComparisonBatch: partialBridge?.startComparisonBatch ?? fallback.startComparisonBatch,
+    getLatestComparisonBatch:
+      partialBridge?.getLatestComparisonBatch ?? fallback.getLatestComparisonBatch,
+    retryComparisonBatch: partialBridge?.retryComparisonBatch ?? fallback.retryComparisonBatch,
+    cancelComparisonBatch: partialBridge?.cancelComparisonBatch ?? fallback.cancelComparisonBatch,
     getLatestDocumentComparison:
       partialBridge?.getLatestDocumentComparison ?? fallback.getLatestDocumentComparison,
     getLatestCandidateComparison:
       partialBridge?.getLatestCandidateComparison ?? fallback.getLatestCandidateComparison,
     onDocumentComparisonProgress:
       partialBridge?.onDocumentComparisonProgress ?? fallback.onDocumentComparisonProgress,
+    onComparisonBatchProgress:
+      partialBridge?.onComparisonBatchProgress ?? fallback.onComparisonBatchProgress,
     openLogDirectory: partialBridge?.openLogDirectory ?? fallback.openLogDirectory,
     getConfig: partialBridge?.getConfig ?? fallback.getConfig,
     setTheme: partialBridge?.setTheme ?? fallback.setTheme,

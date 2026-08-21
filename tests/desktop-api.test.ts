@@ -20,7 +20,7 @@ function createFallbackAPI(): DesktopAPI {
     },
     async openExternal() {},
     selectFile: vi.fn(async () => null),
-    importDocument: vi.fn(async () => null),
+    importDocument: vi.fn(async () => []),
     listDocuments: vi.fn(async () => []),
     getDocumentPreview: vi.fn(async () => ''),
     updateDocument: vi.fn(async () => {
@@ -50,9 +50,20 @@ function createFallbackAPI(): DesktopAPI {
     compareDocuments: vi.fn(async () => {
       throw new Error('Not implemented in fallback test.')
     }),
+    startComparisonBatch: vi.fn(async () => {
+      throw new Error('Not implemented in fallback test.')
+    }),
+    getLatestComparisonBatch: vi.fn(async () => null),
+    retryComparisonBatch: vi.fn(async () => {
+      throw new Error('Not implemented in fallback test.')
+    }),
+    cancelComparisonBatch: vi.fn(async () => {
+      throw new Error('Not implemented in fallback test.')
+    }),
     getLatestDocumentComparison: vi.fn(async () => null),
     getLatestCandidateComparison: vi.fn(async () => null),
     onDocumentComparisonProgress: vi.fn(() => () => undefined),
+    onComparisonBatchProgress: vi.fn(() => () => undefined),
     async openLogDirectory() {},
     async getConfig() {
       return { theme: 'system', releaseChannel: 'stable' }

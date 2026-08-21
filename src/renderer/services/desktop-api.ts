@@ -2,7 +2,9 @@ import type {
   AiComparisonResult,
   AiProviderSettings,
   AppConfig,
+  ComparisonBatch,
   CompareDocumentsInput,
+  CreateComparisonBatchInput,
   CreateDocumentProblemInput,
   DesktopAPI,
   DocumentImportRole,
@@ -18,6 +20,7 @@ import type {
   UpdateAiProviderSettingsInput,
 } from '@shared/types'
 import { createDesktopAPI } from '@shared/desktop-api'
+import { hasPdfSignature, isPdfFileName } from '@shared/document-file'
 
 let previewConfig: AppConfig = { theme: 'system', releaseChannel: 'stable' }
 let previewDocuments: DocumentRecord[] = createPreviewDocuments()
@@ -32,6 +35,8 @@ const previewComparisons = new Map<string, AiComparisonResult>()
 const archivedPreviewComparison = createArchivedPreviewComparison()
 previewComparisons.set(getComparisonKey(archivedPreviewComparison), archivedPreviewComparison)
 const previewComparisonProgressListeners = new Set<(progress: DocumentComparisonProgress) => void>()
+const previewBatchProgressListeners = new Set<(batch: ComparisonBatch) => void>()
+let previewLatestBatch: ComparisonBatch | null = null
 const previewUrls = new Map<string, string>()
 
 const previewPlatform: PlatformInfo = {
@@ -75,6 +80,11 @@ const previewAPI: DesktopAPI = {
   getAiProviderSettings: async () => ({ ...previewAiSettings }),
   updateAiProviderSettings: async (input) => updatePreviewAiSettings(input),
   compareDocuments: async (input) => createPreviewComparison(input),
+  startComparisonBatch: async (input) => startPreviewComparisonBatch(input),
+  getLatestComparisonBatch: async () =>
+    previewLatestBatch ? structuredClone(previewLatestBatch) : null,
+  retryComparisonBatch: async (batchId) => retryPreviewComparisonBatch(batchId),
+  cancelComparisonBatch: async (batchId) => cancelPreviewComparisonBatch(batchId),
   getLatestDocumentComparison: async (input) =>
     previewComparisons.get(getComparisonKey(input)) ?? null,
   getLatestCandidateComparison: async (candidateDocumentId) =>
@@ -84,6 +94,10 @@ const previewAPI: DesktopAPI = {
   onDocumentComparisonProgress: (callback) => {
     previewComparisonProgressListeners.add(callback)
     return () => previewComparisonProgressListeners.delete(callback)
+  },
+  onComparisonBatchProgress: (callback) => {
+    previewBatchProgressListeners.add(callback)
+    return () => previewBatchProgressListeners.delete(callback)
   },
   openLogDirectory: async () => undefined,
   getConfig: async () => ({ ...previewConfig }),
@@ -138,42 +152,59 @@ function selectBrowserFile(): Promise<SelectedFile | null> {
   })
 }
 
-function importBrowserDocument(role: DocumentImportRole): Promise<ImportedDocument | null> {
+function importBrowserDocument(role: DocumentImportRole): Promise<ImportedDocument[]> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = 'application/pdf,.pdf'
+    input.multiple = true
     input.hidden = true
 
     const finish = async (): Promise<void> => {
-      const file = input.files?.[0]
+      const files = Array.from(input.files ?? [])
       input.remove()
-      if (!file) {
-        resolve(null)
+      if (files.length === 0) {
+        resolve([])
         return
       }
 
       try {
-        const previewUrl = await readFileAsDataUrl(file)
-        const importedAt = new Date().toISOString()
-        const id = `${role === 'standard' ? 'STD' : 'DOC'}-${Date.now().toString(36).toUpperCase()}`
-        const compareStatus = role === 'candidate' ? '待比对' : undefined
-        const imported: ImportedDocument = {
-          id,
-          role,
-          name: file.name,
-          size: file.size,
-          pageCount: 1,
-          kind: 'unknown-pdf',
-          status: 'imported',
-          ...(compareStatus ? { compareStatus } : {}),
-          importedAt,
-          updatedAt: importedAt,
-          previewUrl,
+        if (files.some((file) => !isPdfFileName(file.name))) {
+          throw new Error('Only PDF documents can be imported.')
         }
-        previewDocuments = [toDocumentRecord(imported), ...previewDocuments]
-        previewUrls.set(id, previewUrl)
-        resolve(imported)
+
+        const importedDocuments = await Promise.all(
+          files.map(async (file): Promise<ImportedDocument> => {
+            const signature = new Uint8Array(await file.slice(0, 1024).arrayBuffer())
+            if (!hasPdfSignature(signature)) {
+              throw new Error('Only valid PDF documents can be imported.')
+            }
+
+            const previewUrl = await readFileAsDataUrl(file)
+            const importedAt = new Date().toISOString()
+            const id = `${role === 'standard' ? 'STD' : 'DOC'}-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`
+            const compareStatus = role === 'candidate' ? '待比对' : undefined
+            return {
+              id,
+              role,
+              name: file.name,
+              size: file.size,
+              pageCount: 1,
+              kind: 'unknown-pdf',
+              status: 'imported',
+              ...(compareStatus ? { compareStatus } : {}),
+              importedAt,
+              updatedAt: importedAt,
+              previewUrl,
+            }
+          }),
+        )
+
+        previewDocuments = [...importedDocuments.map(toDocumentRecord), ...previewDocuments]
+        for (const document of importedDocuments) {
+          if (document.previewUrl) previewUrls.set(document.id, document.previewUrl)
+        }
+        resolve(importedDocuments)
       } catch (cause) {
         reject(cause)
       }
@@ -334,6 +365,137 @@ async function createPreviewComparison(input: CompareDocumentsInput): Promise<Ai
     message: 'AI 对比完成',
   })
   return structuredClone(result)
+}
+
+function startPreviewComparisonBatch(input: CreateComparisonBatchInput): ComparisonBatch {
+  const standard = previewDocuments.find((document) => document.id === input.standardDocumentId)
+  if (!standard || standard.role !== 'standard') throw new Error('请选择正确的标准文书。')
+  const now = new Date().toISOString()
+  const batchId = `BAT-${Date.now().toString(36).toUpperCase()}`
+  previewLatestBatch = {
+    id: batchId,
+    standardDocumentId: standard.id,
+    standardDocumentName: standard.name,
+    status: 'queued',
+    totalCount: input.candidateDocumentIds.length,
+    completedCount: 0,
+    failedCount: 0,
+    compareModel: previewAiSettings.compareModel,
+    progressMessage: '等待开始批量分析',
+    createdAt: now,
+    items: input.candidateDocumentIds.map((candidateDocumentId, index) => {
+      const candidate = previewDocuments.find((document) => document.id === candidateDocumentId)
+      if (!candidate || candidate.role !== 'candidate') throw new Error('待比对文书选择无效。')
+      return {
+        id: `BAI-${batchId}-${index + 1}`,
+        batchId,
+        candidateDocumentId,
+        candidateName: candidate.name,
+        status: 'queued',
+        progressMessage: '等待分析',
+        attemptCount: 0,
+      }
+    }),
+  }
+  void runPreviewComparisonBatch()
+  return structuredClone(previewLatestBatch)
+}
+
+async function runPreviewComparisonBatch(): Promise<void> {
+  const batch = previewLatestBatch
+  if (!batch || !['queued', 'running'].includes(batch.status)) return
+  batch.status = 'running'
+  batch.startedAt ??= new Date().toISOString()
+  batch.progressMessage = '正在准备标准文书内容'
+  emitPreviewBatchProgress()
+  await waitForPreviewProgress()
+
+  for (const item of batch.items) {
+    if (isPreviewBatchCancelled()) return
+    if (item.status !== 'queued') continue
+    item.status = 'ocr'
+    item.attemptCount += 1
+    item.startedAt ??= new Date().toISOString()
+    item.progressMessage = '待比对文书：正在识别第 1 页扫描内容'
+    item.currentPage = 1
+    item.totalPages = 1
+    batch.progressMessage = `正在分析 ${item.candidateName}`
+    updatePreviewDocument({ id: item.candidateDocumentId, compareStatus: '比对中' })
+    emitPreviewBatchProgress()
+    await waitForPreviewProgress()
+    if (isPreviewBatchCancelled()) return
+
+    item.status = 'comparing'
+    item.progressMessage = 'OCR 与文本提取完成，正在执行大模型对比'
+    emitPreviewBatchProgress()
+    const result = await createPreviewComparison({
+      standardDocumentId: batch.standardDocumentId,
+      candidateDocumentId: item.candidateDocumentId,
+    })
+    item.status = 'succeeded'
+    item.progressMessage = 'AI 对比完成'
+    item.comparisonId = result.id
+    item.finishedAt = new Date().toISOString()
+    batch.completedCount += 1
+    emitPreviewBatchProgress()
+  }
+
+  batch.status = batch.failedCount > 0 ? 'partial_failure' : 'completed'
+  batch.progressMessage = `批量分析完成，共 ${batch.completedCount} 份`
+  batch.finishedAt = new Date().toISOString()
+  emitPreviewBatchProgress()
+}
+
+function retryPreviewComparisonBatch(batchId: string): ComparisonBatch {
+  const batch = requirePreviewBatch(batchId)
+  for (const item of batch.items) {
+    if (['failed', 'cancelled'].includes(item.status)) {
+      item.status = 'queued'
+      item.progressMessage = '等待重试'
+      delete item.errorMessage
+      delete item.finishedAt
+    }
+  }
+  batch.status = 'queued'
+  batch.failedCount = 0
+  batch.progressMessage = '等待重试失败项目'
+  delete batch.errorMessage
+  delete batch.finishedAt
+  void runPreviewComparisonBatch()
+  return structuredClone(batch)
+}
+
+function cancelPreviewComparisonBatch(batchId: string): ComparisonBatch {
+  const batch = requirePreviewBatch(batchId)
+  batch.status = 'cancelled'
+  batch.progressMessage = '批量分析已取消'
+  batch.finishedAt = new Date().toISOString()
+  for (const item of batch.items) {
+    if (item.status === 'queued') {
+      item.status = 'cancelled'
+      item.progressMessage = '已取消'
+      item.finishedAt = batch.finishedAt
+    }
+  }
+  emitPreviewBatchProgress()
+  return structuredClone(batch)
+}
+
+function requirePreviewBatch(batchId: string): ComparisonBatch {
+  if (!previewLatestBatch || previewLatestBatch.id !== batchId) {
+    throw new Error('Comparison batch not found.')
+  }
+  return previewLatestBatch
+}
+
+function isPreviewBatchCancelled(): boolean {
+  return previewLatestBatch?.status === 'cancelled'
+}
+
+function emitPreviewBatchProgress(): void {
+  if (!previewLatestBatch) return
+  const snapshot = structuredClone(previewLatestBatch)
+  for (const listener of previewBatchProgressListeners) listener(snapshot)
 }
 
 function emitPreviewComparisonProgress(

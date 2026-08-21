@@ -13,6 +13,7 @@ import type {
 export async function compareDocuments(
   input: CompareDocumentsInput,
   reportProgress?: (progress: DocumentComparisonProgress) => void,
+  preloadedStandardPages?: DocumentTextPage[],
 ): Promise<AiComparisonResult> {
   const database = getDocumentDatabase()
   const standard = database.getDocument(input.standardDocumentId)
@@ -29,9 +30,10 @@ export async function compareDocuments(
   report({ stage: 'preparing', message: '正在准备文书内容' })
   try {
     const [standardPages, candidatePages] = await Promise.all([
-      getOrExtractDocumentText(standard.id, (progress) =>
-        reportTextProgress(report, 'standard', progress),
-      ),
+      preloadedStandardPages ??
+        getOrExtractDocumentText(standard.id, (progress) =>
+          reportTextProgress(report, 'standard', progress),
+        ),
       getOrExtractDocumentText(candidate.id, (progress) =>
         reportTextProgress(report, 'candidate', progress),
       ),

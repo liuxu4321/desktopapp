@@ -45,6 +45,9 @@ export function updateDocument(input: UpdateDocumentInput): DocumentRecord {
 }
 
 export async function deleteDocument(id: string): Promise<boolean> {
+  if (getDocumentDatabase().isDocumentInActiveComparisonBatch(id)) {
+    throw new Error('批量分析中的文书不能删除，请先取消任务。')
+  }
   const storageKey = getDocumentDatabase().deleteDocument(id)
   if (!storageKey) return false
   const storedPath = resolveStorageKey(storageKey)

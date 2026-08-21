@@ -4,6 +4,8 @@ import log from 'electron-log/main'
 import { ipcChannels, type IpcChannel, type IpcInvokeMap } from '@shared/ipc'
 import {
   compareDocumentsSchema,
+  comparisonBatchIdSchema,
+  createComparisonBatchSchema,
   createDocumentProblemSchema,
   documentIdSchema,
   documentImportRoleSchema,
@@ -25,6 +27,7 @@ import {
   getLatestCandidateComparison,
   getLatestDocumentComparison,
 } from '@main/services/document-comparison'
+import { getComparisonBatchService } from '@main/services/comparison-batch'
 import { importDocumentFromDialog } from '@main/services/document-import'
 import {
   createDocumentProblem,
@@ -52,6 +55,16 @@ function handle<C extends keyof IpcInvokeMap>(
 }
 
 export function registerIpcHandlers(updateService: UpdateService): void {
+  const comparisonBatchService = getComparisonBatchService()
+  comparisonBatchService.subscribe((batch) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) {
+        window.webContents.send(ipcChannels.comparisonBatchProgress, batch)
+      }
+    }
+  })
+  comparisonBatchService.initialize()
+
   handle(ipcChannels.appGetVersion, () => app.getVersion())
 
   handle(ipcChannels.appGetPlatformInfo, () => ({
@@ -146,6 +159,16 @@ export function registerIpcHandlers(updateService: UpdateService): void {
         event.sender.send(ipcChannels.documentsCompareProgress, progress)
       }
     }),
+  )
+  handle(ipcChannels.comparisonBatchStart, (input) =>
+    comparisonBatchService.start(createComparisonBatchSchema.parse(input)),
+  )
+  handle(ipcChannels.comparisonBatchLatest, () => comparisonBatchService.getLatest())
+  handle(ipcChannels.comparisonBatchRetry, (batchId) =>
+    comparisonBatchService.retry(comparisonBatchIdSchema.parse(batchId)),
+  )
+  handle(ipcChannels.comparisonBatchCancel, (batchId) =>
+    comparisonBatchService.cancel(comparisonBatchIdSchema.parse(batchId)),
   )
   handle(ipcChannels.documentComparisonLatest, (input) =>
     getLatestDocumentComparison(compareDocumentsSchema.parse(input)),

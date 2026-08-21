@@ -86,6 +86,30 @@ export const compareDocumentsSchema = z
     message: 'The candidate document ID must use the DOC prefix.',
   })
 
+export const comparisonBatchIdSchema = z.string().trim().startsWith('BAT-').max(100)
+
+export const createComparisonBatchSchema = z
+  .object({
+    standardDocumentId: documentIdSchema.refine((value) => value.startsWith('STD-'), {
+      message: 'The standard document ID must use the STD prefix.',
+    }),
+    candidateDocumentIds: z
+      .array(
+        documentIdSchema.refine((value) => value.startsWith('DOC-'), {
+          message: 'Candidate document IDs must use the DOC prefix.',
+        }),
+      )
+      .min(1)
+      .max(100),
+  })
+  .refine(
+    (value) => new Set(value.candidateDocumentIds).size === value.candidateDocumentIds.length,
+    {
+      message: 'Candidate document IDs must be unique.',
+      path: ['candidateDocumentIds'],
+    },
+  )
+
 export const aiComparisonFindingOutputSchema = z.object({
   type: documentProblemTypeSchema,
   title: z.string().trim().min(1).max(200),
